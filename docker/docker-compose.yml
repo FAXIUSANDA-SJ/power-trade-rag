@@ -1,0 +1,91 @@
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: power-trade-rag-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: power_trade_rag
+      MYSQL_USER: rag_user
+      MYSQL_PASSWORD: rag123456
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../sql/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+      - ../sql/sample_data.sql:/docker-entrypoint-initdb.d/sample.sql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - power-trade-rag-network
+
+  # Redis缓存
+  redis:
+    image: redis:7.0-alpine
+    container_name: power-trade-rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - power-trade-rag-network
+
+  # ChromaDB向量数据库
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: power-trade-rag-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    networks:
+      - power-trade-rag-network
+
+  # 后端服务
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend/Dockerfile
+    container_name: power-trade-rag-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=power_trade_rag
+      - MYSQL_USER=rag_user
+      - MYSQL_PASSWORD=rag123456
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8000
+    depends_on:
+      - mysql
+      - redis
+      - chromadb
+    networks:
+      - power-trade-rag-network
+
+  # 前端服务（可选，如果需要独立的nginx代理）
+  frontend:
+    image: node:16-alpine
+    container_name: power-trade-rag-frontend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../power-trade-rag-web:/app
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    depends_on:
+      - backend
+    networks:
+      - power-trade-rag-network
+
+volumes:
+  mysql_data:
+  redis_data:
+  chromadb_data:
+
+networks:
+  power-trade-rag-network:
+    driver: bridge

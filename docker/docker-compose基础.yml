@@ -1,0 +1,47 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: power-trade-rag-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123456
+      MYSQL_DATABASE: power_trade_rag
+      MYSQL_USER: rag_user
+      MYSQL_PASSWORD: rag123456
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ../sql/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+      - ../sql/sample_data.sql:/docker-entrypoint-initdb.d/sample.sql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    networks:
+      - power-trade-rag-network
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: power-trade-rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - power-trade-rag-network
+
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: power-trade-rag-chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chromadb_data:/chroma/chroma
+    networks:
+      - power-trade-rag-network
+
+volumes:
+  mysql_data:
+  redis_data:
+  chromadb_data:
+
+networks:
+  power-trade-rag-network:
+    driver: bridge

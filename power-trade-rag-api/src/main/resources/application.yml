@@ -1,0 +1,76 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: power-trade-rag-api
+  datasource:
+    url: jdbc:mysql://localhost:3306/power_trade_rag?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  redis:
+    host: localhost
+    port: 6379
+    password:
+    database: 0
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.powertrade.dal.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# LangChain4j 配置（使用 OpenAI text-embedding-ada-002）
+langchain4j:
+  open-ai:
+    api-key: ${OPENAI_API_KEY:sk-xxxxxxxxxxxxxxxxxxxxxxxx}  # 请替换为您的 OpenAI API Key
+    embedding-model-name: text-embedding-ada-002
+    language-model-name: gpt-3.5-turbo
+    base-url: https://api.openai.com/v1
+
+# RAG 配置
+rag:
+  # 向量数据库类型：chroma, milvus
+  vector-database-type: chroma
+  
+  # ChromaDB 配置
+  chromadb:
+    host: localhost
+    port: 8000
+    collection-name: power-trade-knowledge
+  
+  # Milvus 配置
+  milvus:
+    host: localhost
+    port: 19530
+    username: 
+    password: 
+    collection-name: power_trade_knowledge
+    database: default
+  
+  # 通用向量存储配置
+  vector-store:
+    # 默认使用的向量数据库
+    default-type: chroma
+    # 是否启用自动创建集合
+    auto-create-collection: true
+  
+  # 文档处理配置
+  document:
+    chunk-size: 300
+    chunk-overlap: 30
+    upload-dir: ./data/docs
+    # 向量维度（text-embedding-ada-002 为 1536）
+    embedding-dimension: 1536
+
+# 系统配置
+system:
+  name: 电力交易智能问答系统
+  version: 1.0.0
+  description: 基于 LangChain4j、OpenAI Embedding 和 ChromaDB/Milvus 的 RAG 系统
