@@ -1,7 +1,5 @@
 package com.powertrade.core.config;
 
-import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import dev.langchain4j.store.embedding.chroma.ChromaEmbeddingStore;
 import dev.langchain4j.store.embedding.milvus.MilvusEmbeddingStore;
@@ -55,7 +53,7 @@ public class VectorDatabaseConfig {
      */
     @Bean
     @ConditionalOnProperty(name = "rag.vector-database-type", havingValue = "chroma", matchIfMissing = true)
-    public EmbeddingStore embeddingStoreChroma(EmbeddingModel embeddingModel) {
+    public EmbeddingStore embeddingStoreChroma() {
         System.out.println("===================================");
         System.out.println("初始化 ChromaDB 向量存储");
         System.out.println("地址：" + chromaHost + ":" + chromaPort);
@@ -65,7 +63,6 @@ public class VectorDatabaseConfig {
         return ChromaEmbeddingStore.builder()
                 .baseUrl("http://" + chromaHost + ":" + chromaPort)
                 .collectionName(chromaCollectionName)
-                .embeddingModel(embeddingModel)
                 .build();
     }
 
@@ -74,7 +71,7 @@ public class VectorDatabaseConfig {
      */
     @Bean
     @ConditionalOnProperty(name = "rag.vector-database-type", havingValue = "milvus")
-    public EmbeddingStore embeddingStoreMilvus(EmbeddingModel embeddingModel) {
+    public EmbeddingStore embeddingStoreMilvus() {
         System.out.println("===================================");
         System.out.println("初始化 Milvus 向量存储");
         System.out.println("地址：" + milvusHost + ":" + milvusPort);
@@ -86,8 +83,7 @@ public class VectorDatabaseConfig {
                 .host(milvusHost)
                 .port(milvusPort)
                 .collectionName(milvusCollectionName)
-                .databaseName(milvusDatabase)
-                .embeddingModel(embeddingModel);
+                .databaseName(milvusDatabase);
 
         // 如果配置了用户名密码，则添加认证
         if (milvusUsername != null && !milvusUsername.isEmpty()) {

@@ -8,6 +8,7 @@ import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -38,6 +39,12 @@ public class DocumentPreprocessingService {
     @Value("${rag.document.chunk-overlap:30}")
     private int chunkOverlap;
 
+    @Value("${rag.document.ocr-enabled:false}")
+    private boolean ocrEnabled;
+
+    @Autowired
+    private OcrService ocrService;
+
     /**
      * 解析文档并提取文本
      * @param file 上传的文件
@@ -48,6 +55,13 @@ public class DocumentPreprocessingService {
         
         try (InputStream inputStream = file.getInputStream()) {
             Document document = parser.parse(inputStream);
+
+            if (shouldFallbackToOcr(file, document.text())) {
+                String ocrText = ocrService.extractText(file);
+                if (ocrText != null && !ocrText.trim().isEmpty()) {
+                    document = Document.from(ocrText);
+                }
+            }
             
             // 添加元数据
             document.metadata().put("fileName", file.getOriginalFilename());
@@ -127,6 +141,23 @@ public class DocumentPreprocessingService {
         Pattern pattern = Pattern.compile("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F-\\x9F]");
         Matcher matcher = pattern.matcher(text);
         return matcher.replaceAll("");
+    }
+
+    private boolean shouldFallbackToOcr(MultipartFile file, String text) {
+        if (!ocrEnabled) {
+            return false;
+        }
+        String fileName = file.getOriginalFilename();
+        if (fileName == null) {
+            return false;
+        }
+        String lowerFileName = fileName.toLowerCase();
+        boolean imageLike = lowerFileName.endsWith(".png")
+                || lowerFileName.endsWith(".jpg")
+                || lowerFileName.endsWith(".jpeg")
+                || lowerFileName.endsWith(".webp");
+        boolean scannedPdfLike = lowerFileName.endsWith(".pdf") && (text == null || text.trim().length() < 20);
+        return imageLike || scannedPdfLike;
     }
 
     /**

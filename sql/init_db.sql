@@ -59,3 +59,41 @@ CREATE TABLE chat_record (
     INDEX idx_session_id (session_id),
     INDEX idx_create_time (create_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='对话记录表';
+
+-- 统一配置版本表
+CREATE TABLE config_version (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    config_type VARCHAR(64) NOT NULL COMMENT '配置类型: prompt/retrieval/knowledge_base',
+    config_key VARCHAR(128) NOT NULL COMMENT '配置键: system 或 kb_id',
+    version_no INT NOT NULL COMMENT '版本号',
+    is_active TINYINT DEFAULT 0 COMMENT '是否为当前生效版本',
+    base_version_id BIGINT NULL COMMENT '基于哪个版本创建',
+    description VARCHAR(255) NULL COMMENT '版本说明',
+    config_payload LONGTEXT NOT NULL COMMENT '配置 JSON',
+    creator VARCHAR(64) COMMENT '创建人',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updater VARCHAR(64) COMMENT '更新人',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_config_version (config_type, config_key, version_no),
+    INDEX idx_config_active (config_type, config_key, is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='统一配置版本表';
+
+-- 文档摄取任务表
+CREATE TABLE ingest_task (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    task_id VARCHAR(64) NOT NULL COMMENT '任务唯一标识',
+    doc_id VARCHAR(64) NOT NULL COMMENT '文档ID',
+    kb_id VARCHAR(64) NOT NULL COMMENT '知识库ID',
+    task_type VARCHAR(32) NOT NULL COMMENT '任务类型: upload/reindex/delete',
+    status VARCHAR(32) NOT NULL COMMENT '任务状态: pending/running/success/failed',
+    retry_count INT DEFAULT 0 COMMENT '重试次数',
+    max_retry_count INT DEFAULT 3 COMMENT '最大重试次数',
+    error_message VARCHAR(1000) NULL COMMENT '错误信息',
+    creator VARCHAR(64) COMMENT '创建人',
+    create_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updater VARCHAR(64) COMMENT '更新人',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_task_id (task_id),
+    INDEX idx_doc_task (doc_id, kb_id),
+    INDEX idx_task_status (status, create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='文档摄取任务表';

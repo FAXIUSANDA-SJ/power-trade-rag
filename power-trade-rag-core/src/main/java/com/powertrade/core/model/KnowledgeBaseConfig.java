@@ -1,26 +1,19 @@
 package com.powertrade.core.model;
 
 import java.io.Serializable;
-import java.util.Date;
 
-/**
- * 知识库模型
- */
-public class KnowledgeBase implements Serializable {
+public class KnowledgeBaseConfig implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
     private String kbId;
-    private String name;
-    private String description;
-    private Integer status;
-    private Integer configVersionNo;
+    private Integer versionNo;
     private String vectorModel;
     private String parseStrategy;
     private Integer chunkSize;
     private Integer chunkOverlap;
     private Boolean ocrEnabled;
-    private Date createTime;
+    private String updatedAt;
 
     public String getKbId() {
         return kbId;
@@ -30,36 +23,12 @@ public class KnowledgeBase implements Serializable {
         this.kbId = kbId;
     }
 
-    public String getName() {
-        return name;
+    public Integer getVersionNo() {
+        return versionNo;
     }
 
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public void setDescription(String description) {
-        this.description = description;
-    }
-
-    public Integer getStatus() {
-        return status;
-    }
-
-    public void setStatus(Integer status) {
-        this.status = status;
-    }
-
-    public Integer getConfigVersionNo() {
-        return configVersionNo;
-    }
-
-    public void setConfigVersionNo(Integer configVersionNo) {
-        this.configVersionNo = configVersionNo;
+    public void setVersionNo(Integer versionNo) {
+        this.versionNo = versionNo;
     }
 
     public String getVectorModel() {
@@ -102,11 +71,11 @@ public class KnowledgeBase implements Serializable {
         this.ocrEnabled = ocrEnabled;
     }
 
-    public Date getCreateTime() {
-        return createTime;
+    public String getUpdatedAt() {
+        return updatedAt;
     }
 
-    public void setCreateTime(Date createTime) {
-        this.createTime = createTime;
+    public void setUpdatedAt(String updatedAt) {
+        this.updatedAt = updatedAt;
     }
 }

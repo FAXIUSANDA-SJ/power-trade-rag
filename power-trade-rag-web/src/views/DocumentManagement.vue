@@ -25,10 +25,19 @@
       </div>
       
       <div class="document-list">
+        <div class="toolbar">
+          <el-select v-model="filters.ingestStatus" placeholder="按摄取状态筛选" clearable @change="loadDocuments">
+            <el-option label="待处理" value="pending" />
+            <el-option label="处理中" value="running" />
+            <el-option label="成功" value="success" />
+            <el-option label="失败" value="failed" />
+          </el-select>
+        </div>
         <el-table :data="documents" style="width: 100%">
           <el-table-column prop="docId" label="文档ID" width="180"></el-table-column>
           <el-table-column prop="title" label="文档标题"></el-table-column>
           <el-table-column prop="docType" label="类型" width="100"></el-table-column>
+          <el-table-column prop="ingestStatus" label="摄取状态" width="120"></el-table-column>
           <el-table-column prop="createTime" label="创建时间" width="180"></el-table-column>
           <el-table-column label="操作" width="100">
             <template #default="scope">
@@ -53,6 +62,9 @@ import { ElMessage } from 'element-plus'
 import { documentApi } from '../api/document'
 
 const documents = ref([])
+const filters = ref({
+  ingestStatus: ''
+})
 
 onMounted(() => {
   loadDocuments()
@@ -60,7 +72,11 @@ onMounted(() => {
 
 const loadDocuments = async () => {
   try {
-    const response = await documentApi.getList({ page: 1, size: 10 })
+    const response = await documentApi.getList({
+      page: 1,
+      size: 10,
+      ingestStatus: filters.value.ingestStatus || undefined
+    })
     documents.value = response.data || []
   } catch (error) {
     console.error('加载文档列表失败:', error)
@@ -69,7 +85,7 @@ const loadDocuments = async () => {
 }
 
 const handleUploadSuccess = (response) => {
-  ElMessage.success('文件上传成功')
+  ElMessage.success(response?.message || '文件上传已受理')
   loadDocuments()
 }
 
@@ -109,5 +125,9 @@ const deleteDocument = async (docId) => {
 
 .document-list {
   margin-top: 20px;
+}
+
+.toolbar {
+  margin-bottom: 16px;
 }
 </style>

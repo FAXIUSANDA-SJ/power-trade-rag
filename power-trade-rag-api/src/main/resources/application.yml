@@ -5,14 +5,14 @@ spring:
   application:
     name: power-trade-rag-api
   datasource:
-    url: jdbc:mysql://localhost:3306/power_trade_rag?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
-    username: root
-    password: root
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:power_trade_rag}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:root}
     driver-class-name: com.mysql.cj.jdbc.Driver
   redis:
-    host: localhost
-    port: 6379
-    password:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:}
     database: 0
   servlet:
     multipart:
@@ -36,28 +36,37 @@ langchain4j:
 
 # RAG 配置
 rag:
+  ai:
+    provider: openai
   # 向量数据库类型：chroma, milvus
-  vector-database-type: chroma
+  vector-database-type: milvus
   
   # ChromaDB 配置
   chromadb:
-    host: localhost
-    port: 8000
+    host: ${CHROMADB_HOST:localhost}
+    port: ${CHROMADB_PORT:8000}
     collection-name: power-trade-knowledge
   
   # Milvus 配置
   milvus:
-    host: localhost
-    port: 19530
-    username: 
-    password: 
+    host: ${MILVUS_HOST:localhost}
+    port: ${MILVUS_PORT:19530}
+    username: ${MILVUS_USERNAME:root}
+    password: ${MILVUS_PASSWORD:Milvus}
     collection-name: power_trade_knowledge
     database: default
+
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin}
+    bucket-name: ${MINIO_BUCKET_NAME:power-trade-rag}
+    enabled: ${MINIO_ENABLED:false}
   
   # 通用向量存储配置
   vector-store:
     # 默认使用的向量数据库
-    default-type: chroma
+    default-type: milvus
     # 是否启用自动创建集合
     auto-create-collection: true
   
@@ -68,6 +77,16 @@ rag:
     upload-dir: ./data/docs
     # 向量维度（text-embedding-ada-002 为 1536）
     embedding-dimension: 1536
+    ocr-enabled: ${RAG_OCR_ENABLED:false}
+    ocr-provider: ${RAG_OCR_PROVIDER:none}
+    ocr-endpoint: ${RAG_OCR_ENDPOINT:}
+    ocr-api-key: ${RAG_OCR_API_KEY:}
+    ocr-response-field: ${RAG_OCR_RESPONSE_FIELD:text}
+    ocr-connect-timeout-ms: ${RAG_OCR_CONNECT_TIMEOUT_MS:3000}
+    ocr-read-timeout-ms: ${RAG_OCR_READ_TIMEOUT_MS:10000}
+
+  ingest:
+    worker-delay-ms: ${RAG_INGEST_WORKER_DELAY_MS:5000}
 
 # 系统配置
 system:

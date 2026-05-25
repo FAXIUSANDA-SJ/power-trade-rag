@@ -35,7 +35,7 @@ public class VectorStoreService {
     private final Map<String, Set<String>> knowledgeBaseIndex = new ConcurrentHashMap<>();
 
     // 文档 ID 到向量 ID 的映射
-    private final Map<String, List<String>> documentVectorMap = new ConcurrentHashMap<>();
+    private final Map<String, Set<String>> documentVectorMap = new ConcurrentHashMap<>();
 
     /**
      * 向量化并添加文本片段
@@ -58,7 +58,7 @@ public class VectorStoreService {
                 // 记录文档 ID 到向量 ID 的映射
                 String docId = segment.metadata().getString("docId");
                 if (docId != null) {
-                    documentVectorMap.computeIfAbsent(docId, k -> new ArrayList<>()).add(vectorId);
+                    documentVectorMap.computeIfAbsent(docId, k -> ConcurrentHashMap.newKeySet()).add(vectorId);
                 }
             }
             
@@ -166,7 +166,7 @@ public class VectorStoreService {
      */
     public void deleteDocumentVectors(String docId) {
         try {
-            List<String> vectorIds = documentVectorMap.remove(docId);
+            Set<String> vectorIds = documentVectorMap.remove(docId);
             if (vectorIds != null && !vectorIds.isEmpty()) {
                 // 从向量存储中删除
                 for (String vectorId : vectorIds) {
@@ -195,6 +195,11 @@ public class VectorStoreService {
                 for (String vectorId : vectorIds) {
                     embeddingStore.remove(vectorId);
                 }
+
+                documentVectorMap.entrySet().removeIf(entry -> {
+                    entry.getValue().removeIf(vectorIds::contains);
+                    return entry.getValue().isEmpty();
+                });
                 
                 log.info("删除知识库 {} 的 {} 个向量", kbId, vectorIds.size());
             }
@@ -220,6 +225,11 @@ public class VectorStoreService {
         stats.put("embeddingDimension", 1536);
         
         return stats;
+    }
+
+    public boolean hasDocumentVectors(String docId) {
+        Set<String> vectorIds = documentVectorMap.get(docId);
+        return vectorIds != null && !vectorIds.isEmpty();
     }
 
     /**

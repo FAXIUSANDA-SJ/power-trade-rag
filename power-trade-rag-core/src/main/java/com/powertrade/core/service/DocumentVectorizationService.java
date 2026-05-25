@@ -9,16 +9,16 @@ import dev.langchain4j.data.embedding.Embedding;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
 import dev.langchain4j.store.embedding.EmbeddingMatch;
+import dev.langchain4j.store.embedding.EmbeddingSearchRequest;
+import dev.langchain4j.store.embedding.EmbeddingSearchResult;
 import dev.langchain4j.store.embedding.EmbeddingStore;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 文档向量化服务
@@ -98,14 +98,20 @@ public class DocumentVectorizationService {
      */
     public List<EmbeddingMatch<TextSegment>> searchRelevant(String query, int maxResults, String kbId) {
         Embedding queryEmbedding = embeddingModel.embed(query).content();
-        
+
+        EmbeddingSearchResult<TextSegment> searchResult = embeddingStore.search(
+                EmbeddingSearchRequest.builder()
+                        .queryEmbedding(queryEmbedding)
+                        .maxResults(maxResults)
+                        .build()
+        );
+
         if (kbId != null && !kbId.isEmpty()) {
-            // 按知识库过滤
-            return embeddingStore.search(queryEmbedding, maxResults, 
-                match -> kbId.equals(match.embedding().metadata().get("kbId")));
-        } else {
-            return embeddingStore.search(queryEmbedding, maxResults);
+            return searchResult.matches().stream()
+                    .filter(match -> kbId.equals(match.embedded().metadata().get("kbId")))
+                    .collect(Collectors.toList());
         }
+        return searchResult.matches();
     }
 
     /**

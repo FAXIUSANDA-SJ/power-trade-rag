@@ -20,6 +20,8 @@ public class DocumentInfo implements Serializable {
     private Integer status;
     private Date createTime;
     private Integer segmentCount;
+    private String ingestTaskId;
+    private String ingestStatus;
 
     public String getDocId() {
         return docId;
@@ -99,5 +101,21 @@ public class DocumentInfo implements Serializable {
 
     public void setSegmentCount(Integer segmentCount) {
         this.segmentCount = segmentCount;
+    }
+
+    public String getIngestTaskId() {
+        return ingestTaskId;
+    }
+
+    public void setIngestTaskId(String ingestTaskId) {
+        this.ingestTaskId = ingestTaskId;
+    }
+
+    public String getIngestStatus() {
+        return ingestStatus;
+    }
+
+    public void setIngestStatus(String ingestStatus) {
+        this.ingestStatus = ingestStatus;
     }
 }

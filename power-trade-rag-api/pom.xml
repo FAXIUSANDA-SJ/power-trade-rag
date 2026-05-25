@@ -15,10 +15,6 @@
     <artifactId>power-trade-rag-api</artifactId>
     <packaging>jar</packaging>
 
-    <properties>
-        <langchain4j.version>0.35.0</langchain4j.version>
-    </properties>
-
     <repositories>
         <repository>
             <id>central</id>
@@ -33,13 +29,6 @@
     </repositories>
 
     <dependencies>
-        <!-- 添加 LangChain4j OpenAI Spring Boot Starter 依赖 -->
-        <dependency>
-            <groupId>dev.langchain4j</groupId>
-            <artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
-            <version>0.24.0</version>
-        </dependency>
-
         <dependency>
             <groupId>com.powertrade</groupId>
             <artifactId>power-trade-rag-core</artifactId>

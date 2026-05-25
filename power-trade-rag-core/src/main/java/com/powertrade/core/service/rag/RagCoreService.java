@@ -2,8 +2,11 @@ package com.powertrade.core.service.rag;
 
 import com.powertrade.core.model.ChatRequest;
 import com.powertrade.core.model.ChatResponse;
+import com.powertrade.core.model.KnowledgeBaseStats;
+import com.powertrade.core.model.PromptConfig;
+import com.powertrade.core.model.RetrievalConfig;
+import com.powertrade.core.service.config.RetrievalConfigService;
 import dev.langchain4j.data.segment.TextSegment;
-import dev.langchain4j.store.embedding.EmbeddingMatch;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,9 +41,14 @@ public class RagCoreService {
     @Autowired
     private AnswerGenerationService answerGenerationService;
 
-    // 默认检索参数
-    private static final int DEFAULT_MAX_RESULTS = 5;
-    private static final double MIN_SIMILARITY_SCORE = 0.6;
+    @Autowired
+    private ConversationMemoryService conversationMemoryService;
+
+    @Autowired
+    private PromptConfigService promptConfigService;
+
+    @Autowired
+    private RetrievalConfigService retrievalConfigService;
 
     /**
      * 完整的 RAG 问答流程
@@ -59,25 +67,22 @@ public class RagCoreService {
         ChatResponse response = new ChatResponse();
 
         try {
-            // 1. 生成会话 ID
-            String sessionId = request.getSessionId();
-            if (sessionId == null || sessionId.isEmpty()) {
-                sessionId = UUID.randomUUID().toString();
-                response.setSessionId(sessionId);
-            } else {
-                response.setSessionId(sessionId);
-            }
+            // 1. 生成或复用会话 ID
+            String sessionId = conversationMemoryService.getOrCreateSessionId(request.getSessionId());
+            response.setSessionId(sessionId);
 
             String query = request.getQuery();
             String kbId = request.getKbId();
+            PromptConfig promptConfig = promptConfigService.getConfig();
+            RetrievalConfig retrievalConfig = retrievalConfigService.getActiveConfig();
 
             // 2. 相似度检索（使用 OpenAI 嵌入模型）
             log.info("步骤 1: 执行相似度检索");
             SimilaritySearchEngine.SearchRequest searchRequest = searchEngine.builder()
                     .query(query)
-                    .maxResults(DEFAULT_MAX_RESULTS)
+                    .maxResults(retrievalConfig.getTopK())
                     .kbId(kbId)
-                    .minScore(MIN_SIMILARITY_SCORE);
+                    .minScore(retrievalConfig.getMinScore());
 
             SimilaritySearchEngine.SearchResult searchResult = searchEngine.search(searchRequest);
             log.info("检索到 {} 个相关文档", searchResult.getTotalMatches());
@@ -85,27 +90,32 @@ public class RagCoreService {
             // 3. 检查是否有匹配结果
             if (searchResult.getDocuments().isEmpty()) {
                 log.warn("未找到相关文档，使用通用回答");
-                response.setAnswer("抱歉，我暂时没有找到与您的问题相关的信息。您可以尝试换个问法，或者联系人工客服获取帮助。");
+                String fallbackReply = promptConfig.getFallbackReply();
+                response.setAnswer(fallbackReply);
                 response.setReferences(new ArrayList<>());
                 response.setCode(200);
                 response.setMessage("未找到相关文档");
+                conversationMemoryService.appendConversation(sessionId, query, fallbackReply);
                 return response;
             }
 
             // 4. 构建参考文档列表
             List<String> references = searchResult.getDocuments().stream()
-                    .map(doc -> doc.getDocumentId())
+                    .map(SimilaritySearchEngine.MatchedDocument::getDocId)
                     .collect(Collectors.toList());
 
             // 5. 生成答案（使用检索到的上下文）
             log.info("步骤 2: 生成答案");
-            String answer = answerGenerationService.generateAnswer(query, searchResult.getDocuments());
+            List<ConversationMemoryService.ConversationTurn> conversationHistory =
+                    conversationMemoryService.getRecentHistory(sessionId);
+            String answer = answerGenerationService.generateAnswer(query, searchResult.getDocuments(), conversationHistory);
 
             // 6. 设置响应
             response.setAnswer(answer);
             response.setReferences(references);
             response.setCode(200);
             response.setMessage("success");
+            conversationMemoryService.appendConversation(sessionId, query, answer);
 
             log.info("RAG 问答流程完成");
             log.info("=================================");
@@ -120,6 +130,20 @@ public class RagCoreService {
             response.setMessage("系统错误：" + e.getMessage());
             return response;
         }
+    }
+
+    public void clearSession(String sessionId) {
+        conversationMemoryService.clearSession(sessionId);
+    }
+
+    public SimilaritySearchEngine.SearchResult testSearch(String query, String kbId) {
+        RetrievalConfig retrievalConfig = retrievalConfigService.getActiveConfig();
+        SimilaritySearchEngine.SearchRequest searchRequest = searchEngine.builder()
+                .query(query)
+                .maxResults(retrievalConfig.getTopK())
+                .kbId(kbId)
+                .minScore(retrievalConfig.getMinScore());
+        return searchEngine.search(searchRequest);
     }
 
     /**
@@ -138,33 +162,33 @@ public class RagCoreService {
         log.info("=================================");
 
         try {
-            // 1. 读取文件内容
             byte[] fileBytes = file.getBytes();
             String content = new String(fileBytes, "UTF-8");
-
-            // 2. 文档预处理（分块）
-            log.info("步骤 1: 文档预处理和分块");
-            List<TextSegment> segments = preprocessingService.chunkDocument(content, docId, file.getOriginalFilename(), kbId);
-            log.info("文档被分为 {} 个片段", segments.size());
-
-            if (segments.isEmpty()) {
-                throw new RuntimeException("文档分块失败，未生成任何片段");
-            }
-
-            // 3. 向量化并存储（使用 OpenAI text-embedding-ada-002）
-            log.info("步骤 2: 向量化并存储到向量数据库");
-            List<String> vectorIds = vectorStoreService.addTextSegments(segments, kbId);
-            log.info("生成 {} 个向量，存储成功", vectorIds.size());
-
-            log.info("文档处理完成");
-            log.info("=================================");
-
-            return segments.size();
+            return processAndStoreDocumentContent(content, kbId, docId, file.getOriginalFilename());
 
         } catch (IOException e) {
             log.error("文档处理失败：{}", e.getMessage(), e);
             throw new RuntimeException("文档处理失败：" + e.getMessage(), e);
         }
+    }
+
+    public int processAndStoreDocumentContent(String content, String kbId, String docId, String fileName) {
+        log.info("步骤 1: 文档预处理和分块");
+        List<TextSegment> segments = preprocessingService.preprocessText(content, docId, kbId);
+        log.info("文档被分为 {} 个片段", segments.size());
+
+        preprocessingService.addMetadataToSegments(segments, docId, kbId, fileName);
+
+        if (segments.isEmpty()) {
+            throw new RuntimeException("文档分块失败，未生成任何片段");
+        }
+
+        log.info("步骤 2: 向量化并存储到向量数据库");
+        List<String> vectorIds = vectorStoreService.addTextSegments(segments, kbId);
+        log.info("生成 {} 个向量，存储成功", vectorIds.size());
+        log.info("文档处理完成");
+        log.info("=================================");
+        return segments.size();
     }
 
     /**
@@ -187,8 +211,10 @@ public class RagCoreService {
 
             // 2. 文档预处理（分块）
             log.info("步骤 1: 文本预处理和分块");
-            List<TextSegment> segments = preprocessingService.chunkDocument(text, docId, title, kbId);
+            List<TextSegment> segments = preprocessingService.preprocessText(text, docId, kbId);
             log.info("文本被分为 {} 个片段", segments.size());
+
+            preprocessingService.addMetadataToSegments(segments, docId, kbId, title);
 
             if (segments.isEmpty()) {
                 throw new RuntimeException("文本分块失败，未生成任何片段");
@@ -208,6 +234,14 @@ public class RagCoreService {
             log.error("文本处理失败：{}", e.getMessage(), e);
             throw new RuntimeException("文本处理失败：" + e.getMessage(), e);
         }
+    }
+
+    /**
+     * 删除文档及其向量
+     * @param docId 文档 ID
+     */
+    public void deleteDocument(String docId) {
+        deleteDocument(docId, null);
     }
 
     /**
@@ -250,7 +284,17 @@ public class RagCoreService {
      * @param kbId 知识库 ID
      * @return 统计信息
      */
-    public Object getKnowledgeBaseStats(String kbId) {
-        return vectorStoreService.getKnowledgeBaseStats(kbId);
+    public KnowledgeBaseStats getKnowledgeBaseStats(String kbId) {
+        java.util.Map<String, Object> stats = vectorStoreService.getKnowledgeBaseStats(kbId);
+        KnowledgeBaseStats result = new KnowledgeBaseStats();
+        result.setKbId(kbId);
+        result.setVectorCount((Integer) stats.getOrDefault("vectorCount", 0));
+        result.setEmbeddingModel((String) stats.getOrDefault("embeddingModel", "text-embedding-ada-002"));
+        result.setEmbeddingDimension((Integer) stats.getOrDefault("embeddingDimension", 1536));
+        return result;
+    }
+
+    public boolean hasProcessedDocument(String docId) {
+        return vectorStoreService.hasDocumentVectors(docId);
     }
 }

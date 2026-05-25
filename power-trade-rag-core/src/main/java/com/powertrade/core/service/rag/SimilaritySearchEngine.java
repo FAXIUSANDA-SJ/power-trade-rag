@@ -209,7 +209,7 @@ public class SimilaritySearchEngine {
                     return true;
                 })
                 // 4. 按相似度排序
-                .sorted(Comparator.comparing(EmbeddingMatch::score).reversed())
+                .sorted(Comparator.<EmbeddingMatch<TextSegment>>comparingDouble(match -> match.score()).reversed())
                 // 5. 限制结果数量
                 .limit(request.maxResults)
                 .collect(Collectors.toList());

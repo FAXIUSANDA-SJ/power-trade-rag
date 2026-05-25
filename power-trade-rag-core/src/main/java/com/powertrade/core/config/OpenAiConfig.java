@@ -5,6 +5,7 @@ import dev.langchain4j.model.openai.OpenAiEmbeddingModel;
 import dev.langchain4j.model.openai.OpenAiLanguageModel;
 import dev.langchain4j.model.openai.OpenAiTokenizer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -13,6 +14,7 @@ import org.springframework.context.annotation.Configuration;
  * 配置 text-embedding-ada-002 嵌入模型和 GPT 语言模型
  */
 @Configuration
+@ConditionalOnProperty(name = "rag.ai.provider", havingValue = "openai", matchIfMissing = true)
 public class OpenAiConfig {
 
     @Value("${langchain4j.open-ai.api-key:sk-xxxxxxxxxxxxxxxxxxxxxxxx}")
@@ -26,9 +28,6 @@ public class OpenAiConfig {
 
     @Value("${langchain4j.open-ai.base-url:https://api.openai.com/v1}")
     private String baseUrl;
-
-    @Value("${rag.document.chunk-size:300}")
-    private int chunkSize;
 
     /**
      * OpenAI 嵌入模型配置

@@ -1,7 +1,13 @@
 package com.powertrade.api.controller;
 
 import com.powertrade.core.model.DocumentInfo;
+import com.powertrade.core.model.DocumentIngestAcceptedResponse;
+import com.powertrade.core.model.IngestTask;
+import com.powertrade.core.model.KnowledgeBaseStats;
+import com.powertrade.core.model.OcrTestResponse;
 import com.powertrade.core.service.DocumentService;
+import com.powertrade.core.service.IngestTaskService;
+import com.powertrade.core.service.rag.ConfigurableOcrService;
 import com.powertrade.core.service.rag.RagCoreService;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
@@ -11,7 +17,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.List;
 
 /**
@@ -31,10 +36,16 @@ public class DocumentController {
     @Autowired
     private RagCoreService ragCoreService;
 
+    @Autowired
+    private IngestTaskService ingestTaskService;
+
+    @Autowired
+    private ConfigurableOcrService configurableOcrService;
+
     @PostMapping("/upload")
     @ApiOperation("上传文档并处理")
-    public DocumentInfo uploadDocument(@RequestParam("file") MultipartFile file,
-                                       @RequestParam(value = "kbId", required = false, defaultValue = "default") String kbId) {
+    public DocumentIngestAcceptedResponse uploadDocument(@RequestParam("file") MultipartFile file,
+                                                         @RequestParam(value = "kbId", required = false, defaultValue = "default") String kbId) {
         try {
             log.info("收到文档上传请求，文件名：{}, 知识库：{}", file.getOriginalFilename(), kbId);
 
@@ -44,15 +55,16 @@ public class DocumentController {
             // 2. 保存文档元数据
             DocumentInfo docInfo = documentService.saveDocument(file, kbId, docId);
 
-            // 3. 使用 RAG 服务处理并向量化文档
-            int segmentCount = ragCoreService.processAndStoreDocument(file, kbId, docId);
-            docInfo.setSegmentCount(segmentCount);
+            IngestTask ingestTask = ingestTaskService.createPendingTask(docId, kbId, "upload");
+            docInfo.setIngestTaskId(ingestTask.getTaskId());
+            docInfo.setIngestStatus(ingestTask.getStatus());
+            docInfo.setSegmentCount(0);
 
-            log.info("文档上传完成，ID: {}, 片段数：{}", docId, segmentCount);
+            log.info("文档上传任务已创建，ID: {}, taskId: {}", docId, docInfo.getIngestTaskId());
 
-            return docInfo;
+            return toAcceptedResponse(docInfo);
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             log.error("文档上传失败：{}", e.getMessage(), e);
             throw new RuntimeException("文件上传失败：" + e.getMessage(), e);
         }
@@ -60,7 +72,7 @@ public class DocumentController {
 
     @PostMapping("/uploadText")
     @ApiOperation("上传纯文本")
-    public DocumentInfo uploadText(@RequestBody TextUploadRequest request) {
+    public DocumentIngestAcceptedResponse uploadText(@RequestBody TextUploadRequest request) {
         try {
             log.info("收到文本上传请求，知识库：{}, 文本长度：{}", request.getKbId(), request.getText().length());
 
@@ -70,17 +82,14 @@ public class DocumentController {
             // 2. 保存文档元数据
             DocumentInfo docInfo = documentService.saveText(request.getText(), request.getKbId(), docId);
 
-            // 3. 使用 RAG 服务处理并向量化文本
-            int segmentCount = ragCoreService.processAndStoreText(
-                request.getText(), 
-                request.getKbId(), 
-                docId
-            );
-            docInfo.setSegmentCount(segmentCount);
+            IngestTask ingestTask = ingestTaskService.createPendingTask(docId, request.getKbId(), "upload");
+            docInfo.setIngestTaskId(ingestTask.getTaskId());
+            docInfo.setIngestStatus(ingestTask.getStatus());
+            docInfo.setSegmentCount(0);
 
-            log.info("文本上传完成，ID: {}, 片段数：{}", docId, segmentCount);
+            log.info("文本上传任务已创建，ID: {}, taskId: {}", docId, docInfo.getIngestTaskId());
 
-            return docInfo;
+            return toAcceptedResponse(docInfo);
 
         } catch (Exception e) {
             log.error("文本上传失败：{}", e.getMessage(), e);
@@ -92,9 +101,10 @@ public class DocumentController {
     @ApiOperation("获取文档列表")
     public List<DocumentInfo> getDocumentList(
             @RequestParam(value = "kbId", required = false) String kbId,
+            @RequestParam(value = "ingestStatus", required = false) String ingestStatus,
             @RequestParam(value = "page", defaultValue = "1") Integer page,
             @RequestParam(value = "size", defaultValue = "10") Integer size) {
-        return documentService.getDocumentList(kbId, page, size);
+        return documentService.getDocumentList(kbId, ingestStatus, page, size);
     }
 
     @DeleteMapping("/{docId}")
@@ -117,9 +127,22 @@ public class DocumentController {
 
     @GetMapping("/stats/{kbId}")
     @ApiOperation("获取知识库统计信息")
-    public com.powertrade.core.service.rag.VectorStoreService.KnowledgeBaseStats getKnowledgeBaseStats(
+    public KnowledgeBaseStats getKnowledgeBaseStats(
             @PathVariable String kbId) {
         return ragCoreService.getKnowledgeBaseStats(kbId);
+    }
+
+    @PostMapping("/ocr/test")
+    @ApiOperation("OCR 联调测试")
+    public OcrTestResponse testOcr(@RequestParam("file") MultipartFile file) {
+        String extractedText = configurableOcrService.extractText(file);
+        OcrTestResponse response = new OcrTestResponse();
+        response.setProvider(configurableOcrService.getActiveProviderName());
+        response.setFileName(file.getOriginalFilename());
+        response.setContentType(file.getContentType());
+        response.setExtractedText(extractedText);
+        response.setTextLength(extractedText == null ? 0 : extractedText.length());
+        return response;
     }
 
     /**
@@ -133,5 +156,21 @@ public class DocumentController {
         public void setText(String text) { this.text = text; }
         public String getKbId() { return kbId; }
         public void setKbId(String kbId) { this.kbId = kbId; }
+    }
+
+    private DocumentIngestAcceptedResponse toAcceptedResponse(DocumentInfo docInfo) {
+        DocumentIngestAcceptedResponse response = new DocumentIngestAcceptedResponse();
+        response.setDocId(docInfo.getDocId());
+        response.setKbId(docInfo.getKbId());
+        response.setTitle(docInfo.getTitle());
+        response.setFileName(docInfo.getFileName());
+        response.setDocType(docInfo.getDocType());
+        response.setFileSize(docInfo.getFileSize());
+        response.setIngestTaskId(docInfo.getIngestTaskId());
+        response.setIngestStatus(docInfo.getIngestStatus());
+        response.setSegmentCount(docInfo.getSegmentCount());
+        response.setMessage("文档已受理，正在后台处理中");
+        response.setAcceptedAt(new java.util.Date());
+        return response;
     }
 }

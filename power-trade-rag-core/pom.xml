@@ -112,6 +112,13 @@
             <artifactId>jedis</artifactId>
             <version>${redis.clients.version}</version>
         </dependency>
+
+        <!-- MinIO -->
+        <dependency>
+            <groupId>io.minio</groupId>
+            <artifactId>minio</artifactId>
+            <version>8.5.7</version>
+        </dependency>
         
         <!-- Swagger for API documentation -->
         <dependency>

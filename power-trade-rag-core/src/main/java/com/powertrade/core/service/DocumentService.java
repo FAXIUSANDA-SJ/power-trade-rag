@@ -1,22 +1,35 @@
 package com.powertrade.core.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.powertrade.common.util.FileUtil;
 import com.powertrade.core.model.DocumentInfo;
+import com.powertrade.core.model.IngestTask;
+import com.powertrade.core.storage.FileStorageService;
+import com.powertrade.core.storage.StoredFile;
+import com.powertrade.dal.entity.DocumentEntity;
+import com.powertrade.dal.mapper.DocumentMapper;
 import org.apache.tika.Tika;
-import org.apache.tika.exception.TikaException;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class DocumentService {
 
     private final Tika tika = new Tika();
+
+    @Autowired
+    private FileStorageService fileStorageService;
+
+    @Autowired
+    private DocumentMapper documentMapper;
+
+    @Autowired
+    private IngestTaskService ingestTaskService;
 
     /**
      * 处理上传的文档
@@ -41,11 +54,9 @@ public class DocumentService {
             docInfo.setStatus(1);
             
             // 保存文件
-            String filePath = FileUtil.saveFile(fileBytes, originalFilename);
-            docInfo.setFilePath(filePath);
+            StoredFile storedFile = fileStorageService.save(fileBytes, originalFilename);
+            docInfo.setFilePath(storedFile.getAccessPath());
             
-            // 提取文本内容
-            extractText(filePath);
             saveDocumentMetadata(docInfo);
             
             return docInfo;
@@ -70,8 +81,8 @@ public class DocumentService {
             docInfo.setStatus(1);
             
             // 保存文本文件
-            String filePath = FileUtil.saveFile(text.getBytes(), "text_" + docId + ".txt");
-            docInfo.setFilePath(filePath);
+            StoredFile storedFile = fileStorageService.save(text.getBytes(), "text_" + docId + ".txt");
+            docInfo.setFilePath(storedFile.getAccessPath());
             
             saveDocumentMetadata(docInfo);
             
@@ -97,11 +108,9 @@ public class DocumentService {
             docInfo.setStatus(1);
             
             // 保存文件
-            String filePath = FileUtil.saveFile(fileBytes, originalFilename);
-            docInfo.setFilePath(filePath);
+            StoredFile storedFile = fileStorageService.save(fileBytes, originalFilename);
+            docInfo.setFilePath(storedFile.getAccessPath());
             
-            // 提取文本内容
-            extractText(filePath);
             saveDocumentMetadata(docInfo);
             
             return docInfo;
@@ -111,50 +120,76 @@ public class DocumentService {
     }
 
     /**
-     * 从文件路径提取文本（保留兼容性）
-     * @deprecated 使用 {@link #extractText(String)} 代替
-     */
-    public String extractText(String filePath) throws IOException, TikaException {
-        File file = new File(filePath);
-        return tika.parseToString(file);
-    }
-
-    /**
      * 保存文档元数据
      */
     public void saveDocumentMetadata(DocumentInfo docInfo) {
-        System.out.println("保存文档元数据：" + docInfo.getDocId());
+        DocumentEntity entity = new DocumentEntity();
+        entity.setDocId(docInfo.getDocId());
+        entity.setTitle(docInfo.getTitle());
+        entity.setFileName(docInfo.getFileName());
+        entity.setFilePath(docInfo.getFilePath());
+        entity.setFileSize(docInfo.getFileSize());
+        entity.setDocType(docInfo.getDocType());
+        if ("TEXT".equals(docInfo.getDocType())) {
+            entity.setContent(readDocumentContent(docInfo.getFilePath()));
+        }
+        entity.setStatus(docInfo.getStatus());
+        entity.setCreator("system");
+        documentMapper.insert(entity);
     }
 
     /**
      * 获取文档列表
      */
-    public List<DocumentInfo> getDocumentList(String kbId, Integer page, Integer size) {
-        List<DocumentInfo> list = new ArrayList<>();
-        DocumentInfo doc = new DocumentInfo();
-        doc.setDocId("DOC001");
-        doc.setTitle("电力中长期交易规则");
-        doc.setFileName("电力中长期交易规则.pdf");
-        doc.setDocType("POLICY");
-        doc.setStatus(1);
-        list.add(doc);
-        return list;
+    public List<DocumentInfo> getDocumentList(String kbId, String ingestStatus, Integer page, Integer size) {
+        LambdaQueryWrapper<DocumentEntity> query = new LambdaQueryWrapper<DocumentEntity>()
+                .eq(DocumentEntity::getStatus, 1)
+                .orderByDesc(DocumentEntity::getCreateTime);
+        return documentMapper.selectList(query).stream()
+                .map(this::toModel)
+                .filter(doc -> kbId == null || kbId.trim().isEmpty() || kbId.equals(doc.getKbId()))
+                .filter(doc -> ingestStatus == null || ingestStatus.trim().isEmpty() || ingestStatus.equals(doc.getIngestStatus()))
+                .collect(Collectors.toList());
     }
 
     /**
      * 删除文档
      */
     public boolean deleteDocument(String docId) {
-        System.out.println("删除文档：" + docId);
-        // 同时删除物理文件
-        DocumentInfo doc = getDocumentList(null, 1, 10).stream()
-            .filter(d -> d.getDocId().equals(docId))
-            .findFirst()
-            .orElse(null);
-        if (doc != null && doc.getFilePath() != null) {
-            FileUtil.deleteFile(doc.getFilePath());
+        DocumentEntity entity = documentMapper.selectOne(
+                new LambdaQueryWrapper<DocumentEntity>().eq(DocumentEntity::getDocId, docId)
+        );
+        if (entity == null) {
+            return false;
         }
-        return true;
+        if (entity.getFilePath() != null) {
+            fileStorageService.delete(entity.getFilePath());
+        }
+        entity.setStatus(0);
+        return documentMapper.updateById(entity) > 0;
+    }
+
+    public DocumentInfo getDocumentByDocId(String docId) {
+        DocumentEntity entity = documentMapper.selectOne(
+                new LambdaQueryWrapper<DocumentEntity>().eq(DocumentEntity::getDocId, docId).last("limit 1")
+        );
+        return entity == null ? null : toModel(entity);
+    }
+
+    public String readDocumentContent(String filePath) {
+        try {
+            byte[] fileBytes = fileStorageService.read(filePath);
+            return tika.parseToString(new java.io.ByteArrayInputStream(fileBytes));
+        } catch (Exception e) {
+            throw new RuntimeException("读取文档内容失败", e);
+        }
+    }
+
+    public String getStoredContent(String docId) {
+        DocumentEntity entity = documentMapper.selectOne(
+                new LambdaQueryWrapper<DocumentEntity>().eq(DocumentEntity::getDocId, docId).last("limit 1")
+        );
+        return entity == null ? null : entity.getContent();
     }
 
     /**
@@ -179,5 +214,24 @@ public class DocumentService {
             default:
                 return "OTHER";
         }
+    }
+
+    private DocumentInfo toModel(DocumentEntity entity) {
+        DocumentInfo doc = new DocumentInfo();
+        doc.setDocId(entity.getDocId());
+        doc.setTitle(entity.getTitle());
+        doc.setFileName(entity.getFileName());
+        doc.setFilePath(entity.getFilePath());
+        doc.setFileSize(entity.getFileSize());
+        doc.setDocType(entity.getDocType());
+        doc.setStatus(entity.getStatus());
+        doc.setCreateTime(entity.getCreateTime());
+        IngestTask latestTask = ingestTaskService.getLatestTaskByDocId(entity.getDocId());
+        if (latestTask != null) {
+            doc.setKbId(latestTask.getKbId());
+            doc.setIngestTaskId(latestTask.getTaskId());
+            doc.setIngestStatus(latestTask.getStatus());
+        }
+        return doc;
     }
 }
