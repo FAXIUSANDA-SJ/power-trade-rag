@@ -29,6 +29,11 @@
           <el-icon><Document /></el-icon>
           <span>文档管理</span>
         </el-menu-item>
+
+        <el-menu-item index="/prompt-config">
+          <el-icon><Setting /></el-icon>
+          <span>提示词配置</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -42,6 +47,7 @@
             <el-breadcrumb-item v-if="currentRoute === '/chat'">智能问答</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentRoute === '/knowledge'">知识库管理</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentRoute === '/documents'">文档管理</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="currentRoute === '/prompt-config'">提示词配置</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
         <div class="header-right">
@@ -71,7 +77,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChatDotSquare, ChatLineRound, Folder, Document, User } from '@element-plus/icons-vue'
+import { ChatDotSquare, ChatLineRound, Folder, Document, Setting, User } from '@element-plus/icons-vue'
 
 const route = useRoute()
 

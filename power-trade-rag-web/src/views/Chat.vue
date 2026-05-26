@@ -3,12 +3,20 @@
     <el-card class="chat-card">
       <template #header>
         <div class="card-header">
-          <el-icon><ChatLineRound /></el-icon>
-          <span>电力交易智能问答</span>
+          <div class="header-title">
+            <el-icon><ChatLineRound /></el-icon>
+            <span>{{ assistantTitle }}</span>
+          </div>
+          <el-button text type="primary" @click="resetSession" :disabled="isLoading || !sessionId">
+            清空记忆
+          </el-button>
         </div>
       </template>
       
       <div class="messages-container" ref="messagesContainer">
+        <div v-if="welcomeMessage" class="welcome-banner">
+          {{ welcomeMessage }}
+        </div>
         <div 
           v-for="(message, index) in messages" 
           :key="index" 
@@ -49,14 +57,41 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onMounted, computed } from 'vue'
+import { ElMessage } from 'element-plus'
 import { ChatLineRound } from '@element-plus/icons-vue'
 import { chatApi } from '../api/chat'
+import { promptConfigApi } from '../api/promptConfig'
 
 const userInput = ref('')
 const messages = ref([])
 const isLoading = ref(false)
 const sessionId = ref(null)
+const promptConfig = ref({
+  assistantName: '小电',
+  welcomeMessage: '',
+  systemPrompt: '',
+  fallbackReply: '',
+  memoryRounds: 6
+})
+
+const assistantTitle = computed(() => `${promptConfig.value.assistantName || '小电'}智能问答`)
+const welcomeMessage = computed(() => promptConfig.value.welcomeMessage || '')
+
+const loadPromptConfig = async () => {
+  try {
+    const { data } = await promptConfigApi.getConfig()
+    promptConfig.value = {
+      assistantName: data.assistantName || '小电',
+      welcomeMessage: data.welcomeMessage || '',
+      systemPrompt: data.systemPrompt || '',
+      fallbackReply: data.fallbackReply || '',
+      memoryRounds: data.memoryRounds || 6
+    }
+  } catch (error) {
+    console.error('加载提示词配置失败:', error)
+  }
+}
 
 const sendMessage = async () => {
   if (!userInput.value.trim() || isLoading.value) return
@@ -113,6 +148,26 @@ const scrollToBottom = () => {
     }
   })
 }
+
+const resetSession = async () => {
+  if (!sessionId.value) {
+    return
+  }
+
+  try {
+    await chatApi.clearSession(sessionId.value)
+    sessionId.value = null
+    messages.value = []
+    ElMessage.success('已清空当前会话记忆')
+  } catch (error) {
+    console.error('清空会话失败:', error)
+    ElMessage.error('清空会话失败')
+  }
+}
+
+onMounted(() => {
+  loadPromptConfig()
+})
 </script>
 
 <style scoped>
@@ -131,6 +186,13 @@ const scrollToBottom = () => {
 }
 
 .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.header-title {
   font-size: 18px;
   font-weight: bold;
   color: #303133;
@@ -144,6 +206,15 @@ const scrollToBottom = () => {
   overflow-y: auto;
   padding: 20px;
   background: #f5f7fa;
+}
+
+.welcome-banner {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: #ecf5ff;
+  color: #409eff;
+  border-radius: 10px;
+  line-height: 1.6;
 }
 
 .message {

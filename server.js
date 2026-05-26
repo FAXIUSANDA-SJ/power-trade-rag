@@ -1,6 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = 8080;
@@ -9,6 +11,73 @@ app.use(cors());
 app.use(express.json());
 
 let pool;
+const promptConfigPath = path.join(__dirname, 'data', 'prompt-config.json');
+
+function getDefaultPromptConfig() {
+    return {
+        assistantName: '小电',
+        welcomeMessage: '您好，我是小电，很高兴为您服务。您可以咨询电力交易规则、政策解读、业务流程或知识库相关问题。',
+        systemPrompt: [
+            '你是一名电力交易领域的专业智能客服，名称为"小电"。',
+            '你的核心职责是为用户提供专业、可信、易懂的咨询服务。',
+            '请优先结合知识库和当前对话上下文作答，语气保持友好、专业、耐心。'
+        ].join('\n'),
+        fallbackReply: '抱歉，我暂时没有找到与您问题直接相关的信息。您可以换个问法，或补充更多背景后我继续帮您分析。',
+        memoryRounds: 6,
+        updatedAt: new Date().toISOString()
+    };
+}
+
+function normalizePromptConfig(config = {}) {
+    const defaultConfig = getDefaultPromptConfig();
+    const memoryRounds = Number(config.memoryRounds);
+
+    return {
+        assistantName: String(config.assistantName || defaultConfig.assistantName).trim() || defaultConfig.assistantName,
+        welcomeMessage: String(config.welcomeMessage || defaultConfig.welcomeMessage).trim() || defaultConfig.welcomeMessage,
+        systemPrompt: String(config.systemPrompt || defaultConfig.systemPrompt).trim() || defaultConfig.systemPrompt,
+        fallbackReply: String(config.fallbackReply || defaultConfig.fallbackReply).trim() || defaultConfig.fallbackReply,
+        memoryRounds: Number.isFinite(memoryRounds) ? Math.min(Math.max(memoryRounds, 1), 20) : defaultConfig.memoryRounds,
+        updatedAt: config.updatedAt || new Date().toISOString()
+    };
+}
+
+function ensurePromptConfigDir() {
+    const dir = path.dirname(promptConfigPath);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+}
+
+function loadPromptConfig() {
+    try {
+        ensurePromptConfigDir();
+        if (!fs.existsSync(promptConfigPath)) {
+            const defaultConfig = getDefaultPromptConfig();
+            fs.writeFileSync(promptConfigPath, JSON.stringify(defaultConfig, null, 2), 'utf8');
+            return defaultConfig;
+        }
+
+        const raw = fs.readFileSync(promptConfigPath, 'utf8');
+        return normalizePromptConfig(JSON.parse(raw));
+    } catch (error) {
+        console.error('加载提示词配置失败，使用默认配置:', error);
+        return getDefaultPromptConfig();
+    }
+}
+
+function savePromptConfig(config) {
+    const nextConfig = normalizePromptConfig({
+        ...config,
+        updatedAt: new Date().toISOString()
+    });
+    ensurePromptConfigDir();
+    fs.writeFileSync(promptConfigPath, JSON.stringify(nextConfig, null, 2), 'utf8');
+    return nextConfig;
+}
+
+let currentPromptConfig = loadPromptConfig();
+const sessionMemory = new Map();
 
 async function initDB() {
     pool = mysql.createPool({
@@ -24,29 +93,10 @@ async function initDB() {
 
 initDB();
 
-// ========== 系统提示配置 ===========
-const SYSTEM_PROMPT = {
-    // 智能体人设
-    persona: '您是一位友好、专业的电力交易智能助手，名叫"小电"。您说话亲切、有耐心，善于用通俗易懂的语言解释专业概念。',
-    
-    // 问候语
-    greeting: '您好！我是您的电力交易智能助手小电⚡，很高兴为您服务！有任何电力交易相关的问题都可以问我哦~',
-    
-    // 回答风格
-    style: {
-        friendly: true,           // 友好亲切
-        professional: true,        // 专业准确
-        useEmoji: true,           // 适度使用表情符号
-        structured: true,         // 结构化回答
-        examples: true            // 提供实例
-    },
-    
-    // 常用问候和结束语
-    phrases: {
-        start: ['您好呀！', '很高兴为您解答！', '没问题，让我来帮您看看~', '好的，这个问题我来解答！'],
-        end: ['希望能帮到您！', '如果还有疑问，随时问我哦~', '祝您工作顺利！', '有其他问题欢迎继续提问！'],
-        uncertain: ['这个问题我需要查证一下~', '让我想想怎么解释更清楚~', '我尽量用简单的方式说明~']
-    }
+const promptPhrases = {
+    start: ['您好呀！', '很高兴为您解答！', '没问题，让我来帮您看看~', '好的，这个问题我来解答！'],
+    end: ['希望能帮到您！', '如果还有疑问，随时问我哦~', '祝您工作顺利！', '有其他问题欢迎继续提问！'],
+    uncertain: ['这个问题我需要查证一下~', '让我想想怎么解释更清楚~', '我尽量用简单的方式说明~']
 };
 
 const qaDatabase = {
@@ -59,8 +109,8 @@ const qaDatabase = {
 
 // 人性化回答生成器
 function generateHumanizedAnswer(query, baseAnswer) {
-    const greetings = SYSTEM_PROMPT.phrases.start;
-    const endings = SYSTEM_PROMPT.phrases.end;
+    const greetings = promptPhrases.start;
+    const endings = promptPhrases.end;
     
     // 随机选择开场白
     const greeting = greetings[Math.floor(Math.random() * greetings.length)];
@@ -109,7 +159,7 @@ function findBestAnswer(query) {
     
     // 处理问候语
     if (['你好', '您好', 'hello', 'hi', '早上好', '下午好', '晚上好'].some(g => lowerQuery.includes(g))) {
-        return SYSTEM_PROMPT.greeting;
+        return currentPromptConfig.welcomeMessage;
     }
     
     // 处理感谢
@@ -137,18 +187,40 @@ function findBestAnswer(query) {
     }
     
     // 未找到匹配时的友好回复
-    const uncertainPhrases = SYSTEM_PROMPT.phrases.uncertain;
+    const uncertainPhrases = promptPhrases.uncertain;
     const uncertainPhrase = uncertainPhrases[Math.floor(Math.random() * uncertainPhrases.length)];
     
-    return `${uncertainPhrase}\n\n您问的"${query}"是一个很有深度的问题。由于我的知识库还在不断学习中，建议您：\n\n1. 查阅相关的电力交易政策法规\n2. 咨询专业的电力交易机构\n3. 参考电力交易中心发布的官方文件\n\n如果您有其他具体问题，我很乐意为您解答！📚`;
+    return `${uncertainPhrase}\n\n${currentPromptConfig.fallbackReply}\n\n如果您愿意，也可以补充更具体的业务背景、场景或关键词，我会继续帮您分析。📚`;
+}
+
+function getRecentHistory(sessionId) {
+    const memory = sessionMemory.get(sessionId) || [];
+    const size = currentPromptConfig.memoryRounds || 6;
+    return memory.slice(-size);
+}
+
+function appendSessionMemory(sessionId, query, answer) {
+    const history = sessionMemory.get(sessionId) || [];
+    history.push({
+        query,
+        answer,
+        time: new Date().toISOString()
+    });
+    const size = currentPromptConfig.memoryRounds || 6;
+    sessionMemory.set(sessionId, history.slice(-size));
 }
 
 app.post('/api/chat/ask', async (req, res) => {
     const { sessionId, query, kbId } = req.body;
     
     const sid = sessionId || 'session_' + Date.now();
-    
-    const answer = findBestAnswer(query);
+    const history = getRecentHistory(sid);
+    let answer = findBestAnswer(query);
+
+    if (history.length > 0 && ['继续', '刚才', '上一个', '前面', '那个问题'].some(keyword => query.includes(keyword))) {
+        const lastTurn = history[history.length - 1];
+        answer = `结合我们上一轮的对话，您刚才咨询的是：${lastTurn.query}\n\n${answer}`;
+    }
     
     try {
         if (pool) {
@@ -160,6 +232,8 @@ app.post('/api/chat/ask', async (req, res) => {
     } catch (err) {
         console.error('保存聊天记录失败:', err);
     }
+
+    appendSessionMemory(sid, query, answer);
     
     res.json({
         answer: answer,
@@ -168,6 +242,36 @@ app.post('/api/chat/ask', async (req, res) => {
         code: 200,
         message: 'success'
     });
+});
+
+app.delete('/api/chat/session/:sessionId', (req, res) => {
+    sessionMemory.delete(req.params.sessionId);
+    res.json({ message: '会话记忆已清空' });
+});
+
+app.get('/api/prompt-config', (req, res) => {
+    currentPromptConfig = loadPromptConfig();
+    res.json(currentPromptConfig);
+});
+
+app.put('/api/prompt-config', (req, res) => {
+    try {
+        currentPromptConfig = savePromptConfig(req.body || {});
+        res.json(currentPromptConfig);
+    } catch (error) {
+        console.error('保存提示词配置失败:', error);
+        res.status(500).json({ message: '保存提示词配置失败' });
+    }
+});
+
+app.post('/api/prompt-config/reset', (req, res) => {
+    try {
+        currentPromptConfig = savePromptConfig(getDefaultPromptConfig());
+        res.json(currentPromptConfig);
+    } catch (error) {
+        console.error('重置提示词配置失败:', error);
+        res.status(500).json({ message: '重置提示词配置失败' });
+    }
 });
 
 app.get('/api/knowledge/list', async (req, res) => {

@@ -1,12 +1,14 @@
 package com.powertrade.core.service.rag;
 
+import com.powertrade.core.model.PromptConfig;
 import dev.langchain4j.model.language.LanguageModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -22,27 +24,25 @@ public class AnswerGenerationService {
     @Autowired
     private LanguageModel languageModel;
 
-    @Value("${rag.llm.temperature:0.7}")
-    private double temperature;
-
-    @Value("${rag.llm.max-tokens:2000}")
-    private int maxTokens;
-
-    @Value("${system.name:电力交易智能问答系统}")
-    private String systemName;
+    @Autowired
+    private PromptConfigService promptConfigService;
 
     /**
      * 提示词构建器
      */
     public static class PromptBuilder {
         private String systemPrompt;
+        private String conversationHistory;
         private String context;
         private String query;
-        private List<String> referenceTexts;
-        private boolean includeReferences = true;
 
         public PromptBuilder systemPrompt(String systemPrompt) {
             this.systemPrompt = systemPrompt;
+            return this;
+        }
+
+        public PromptBuilder conversationHistory(String conversationHistory) {
+            this.conversationHistory = conversationHistory;
             return this;
         }
 
@@ -56,16 +56,6 @@ public class AnswerGenerationService {
             return this;
         }
 
-        public PromptBuilder references(List<String> referenceTexts) {
-            this.referenceTexts = referenceTexts;
-            return this;
-        }
-
-        public PromptBuilder includeReferences(boolean include) {
-            this.includeReferences = include;
-            return this;
-        }
-
         public String build() {
             StringBuilder prompt = new StringBuilder();
 
@@ -74,30 +64,64 @@ public class AnswerGenerationService {
                 prompt.append(systemPrompt).append("\n\n");
             }
 
-            // 2. 上下文（参考资料）
+            // 2. 历史对话
+            if (conversationHistory != null && !conversationHistory.isEmpty()) {
+                prompt.append("历史对话：\n");
+                prompt.append(conversationHistory).append("\n\n");
+            }
+
+            // 3. 上下文（参考资料）
             if (context != null && !context.isEmpty()) {
                 prompt.append("参考资料：\n");
                 prompt.append(context).append("\n\n");
             }
 
-            // 3. 用户问题
+            // 4. 用户问题
             if (query != null && !query.isEmpty()) {
                 prompt.append("用户问题：").append(query).append("\n\n");
             }
 
-            // 4. 指令
-            prompt.append("请根据上述参考资料，用通俗易懂的语言回答用户的问题。\n");
+            // 5. 指令
+            prompt.append("请结合历史对话和参考资料，用通俗易懂的语言回答用户问题。\n");
             prompt.append("要求：\n");
-            prompt.append("1. 答案准确、专业、易懂\n");
-            prompt.append("2. 如果参考资料中没有相关信息，请如实告知\n");
-            prompt.append("3. 必要时可以引用参考资料中的内容\n");
+            prompt.append("1. 优先延续当前对话上下文，不要忽略用户之前已说明的信息\n");
+            prompt.append("2. 答案准确、专业、易懂，必要时分点说明\n");
+            prompt.append("3. 如果参考资料中没有相关信息，请如实告知，不要编造\n");
+            prompt.append("4. 必要时给出下一步建议或澄清问题\n");
 
             return prompt.toString();
         }
     }
 
     /**
-     * 生成答案
+     * 基于参考文档和对话记忆生成答案
+     * @param query 用户问题
+     * @param matchedDocs 检索到的相关文档
+     * @param conversationHistory 会话历史
+     * @return 生成的答案
+     */
+    public String generateAnswer(String query,
+                                 List<SimilaritySearchEngine.MatchedDocument> matchedDocs,
+                                 List<ConversationMemoryService.ConversationTurn> conversationHistory) {
+        log.info("开始生成答案，问题：\"{}\"", query);
+
+        try {
+            String context = buildContext(matchedDocs);
+            String history = buildConversationHistory(conversationHistory);
+            String prompt = buildPromptWithContext(context, query, history);
+            String answer = languageModel.generate(prompt).content();
+            answer = postProcessAnswer(answer, query);
+
+            log.info("答案生成完成，长度：{} 字符", answer.length());
+            return answer;
+        } catch (Exception e) {
+            log.error("答案生成失败：{}", e.getMessage(), e);
+            throw new RuntimeException("答案生成失败：" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 兼容简单文本上下文的生成接口
      * @param context 上下文（检索到的相关文档）
      * @param query 用户问题
      * @return 生成的答案
@@ -106,19 +130,12 @@ public class AnswerGenerationService {
         log.info("开始生成答案，问题：\"{}\"", query);
 
         try {
-            // 1. 构建提示词
             String prompt = buildPrompt(context, query);
-
-            // 2. 调用 LLM 生成答案
-            String answer = languageModel.generate(prompt);
-
-            // 3. 后处理
+            String answer = languageModel.generate(prompt).content();
             answer = postProcessAnswer(answer, query);
 
             log.info("答案生成完成，长度：{} 字符", answer.length());
-
             return answer;
-
         } catch (Exception e) {
             log.error("答案生成失败：{}", e.getMessage(), e);
             throw new RuntimeException("答案生成失败：" + e.getMessage(), e);
@@ -135,24 +152,19 @@ public class AnswerGenerationService {
         log.info("开始生成答案（带引用），问题：\"{}\", 参考文档：{} 个", query, matchedDocs.size());
 
         try {
-            // 1. 提取参考文本
-            List<String> referenceTexts = matchedDocs.stream()
-                    .map(SimilaritySearchEngine.MatchedDocument::getText)
-                    .collect(Collectors.toList());
-
-            // 2. 构建上下文
+            // 1. 构建上下文
             String context = buildContext(matchedDocs);
 
-            // 3. 构建提示词
-            String prompt = buildPromptWithContext(context, query);
+            // 2. 构建提示词
+            String prompt = buildPromptWithContext(context, query, "");
 
-            // 4. 调用 LLM 生成答案
-            String answer = languageModel.generate(prompt);
+            // 3. 调用 LLM 生成答案
+            String answer = languageModel.generate(prompt).content();
 
-            // 5. 后处理
+            // 4. 后处理
             answer = postProcessAnswer(answer, query);
 
-            // 6. 提取引用信息
+            // 5. 提取引用信息
             List<Reference> references = extractReferences(matchedDocs);
 
             log.info("答案生成完成，包含 {} 个引用", references.size());
@@ -174,6 +186,10 @@ public class AnswerGenerationService {
      * 构建上下文
      */
     private String buildContext(List<SimilaritySearchEngine.MatchedDocument> matchedDocs) {
+        if (matchedDocs == null || matchedDocs.isEmpty()) {
+            return "";
+        }
+
         StringBuilder context = new StringBuilder();
 
         for (int i = 0; i < matchedDocs.size(); i++) {
@@ -194,9 +210,10 @@ public class AnswerGenerationService {
     /**
      * 构建提示词
      */
-    private String buildPromptWithContext(String context, String query) {
+    private String buildPromptWithContext(String context, String query, String conversationHistory) {
         return new PromptBuilder()
-                .systemPrompt(getDefaultSystemPrompt())
+                .systemPrompt(getSystemPrompt())
+                .conversationHistory(conversationHistory)
                 .context(context)
                 .query(query)
                 .build();
@@ -206,20 +223,50 @@ public class AnswerGenerationService {
      * 构建提示词（简单版本）
      */
     private String buildPrompt(String context, String query) {
+        return buildPrompt(context, query, "");
+    }
+
+    private String buildPrompt(String context, String query, String conversationHistory) {
         return new PromptBuilder()
-                .systemPrompt(getDefaultSystemPrompt())
+                .systemPrompt(getSystemPrompt())
+                .conversationHistory(conversationHistory)
                 .context(context)
                 .query(query)
                 .build();
     }
 
     /**
-     * 获取默认系统提示
+     * 构建会话历史
      */
-    private String getDefaultSystemPrompt() {
-        return "您是一位电力交易领域的专业助手，名叫\"小电\"。\n" +
-               "请用友好、专业、通俗易懂的语气回答问题。\n" +
-               "您擅长解释复杂的电力交易概念、政策和市场规则。";
+    private String buildConversationHistory(List<ConversationMemoryService.ConversationTurn> conversationHistory) {
+        List<ConversationMemoryService.ConversationTurn> turns =
+                conversationHistory == null ? Collections.emptyList() : conversationHistory;
+        if (turns.isEmpty()) {
+            return "";
+        }
+
+        StringBuilder history = new StringBuilder();
+        for (int i = 0; i < turns.size(); i++) {
+            ConversationMemoryService.ConversationTurn turn = turns.get(i);
+            history.append("第").append(i + 1).append("轮对话").append("（").append(turn.getTimestamp()).append("）").append("\n");
+            history.append("用户：").append(turn.getUserMessage()).append("\n");
+            history.append("助手：").append(turn.getAssistantMessage()).append("\n\n");
+        }
+        return history.toString().trim();
+    }
+
+    /**
+     * 获取系统提示
+     */
+    private String getSystemPrompt() {
+        PromptConfig config = promptConfigService.getConfig();
+        String assistantName = StringUtils.hasText(config.getAssistantName()) ? config.getAssistantName().trim() : "小电";
+        String systemPrompt = StringUtils.hasText(config.getSystemPrompt()) ? config.getSystemPrompt().trim() : "";
+
+        if (systemPrompt.contains(assistantName)) {
+            return systemPrompt;
+        }
+        return "当前助手名称为\"" + assistantName + "\"。\n" + systemPrompt;
     }
 
     /**
@@ -283,7 +330,7 @@ public class AnswerGenerationService {
         log.info("使用自定义提示词生成答案");
 
         try {
-            return languageModel.generate(customPrompt);
+            return languageModel.generate(customPrompt).content();
         } catch (Exception e) {
             log.error("答案生成失败：{}", e.getMessage(), e);
             throw new RuntimeException("答案生成失败：" + e.getMessage(), e);

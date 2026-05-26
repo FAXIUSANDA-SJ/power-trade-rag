@@ -11,6 +11,10 @@ const apiClient = axios.create({
 export const chatApi = {
   ask(data) {
     return apiClient.post('/chat/ask', data)
+  },
+
+  clearSession(sessionId) {
+    return apiClient.delete(`/chat/session/${sessionId}`)
   }
 }
 

@@ -11,6 +11,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
+import java.util.Map;
+
 /**
  * 智能问答控制器
  * 基于完整的 RAG 流程实现
@@ -46,5 +49,12 @@ public class ChatController {
         log.info("收到测试检索请求，查询：{}", query);
         
         return ragCoreService.testSearch(query, kbId);
+    }
+
+    @DeleteMapping("/session/{sessionId}")
+    @ApiOperation("清空指定会话的记忆")
+    public Map<String, Object> clearSession(@PathVariable String sessionId) {
+        ragCoreService.clearSession(sessionId);
+        return Collections.<String, Object>singletonMap("message", "会话记忆已清空");
     }
 }
