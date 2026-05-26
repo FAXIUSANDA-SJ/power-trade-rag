@@ -15,8 +15,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -31,8 +29,6 @@ public class DocumentPreprocessingService {
     private static final Logger log = LoggerFactory.getLogger(DocumentPreprocessingService.class);
 
     private final DocumentParser parser = new ApacheTikaDocumentParser();
-    private final DocumentSplitter splitter = DocumentSplitters.recursive(300, 30);
-
     @Value("${rag.document.chunk-size:300}")
     private int chunkSize;
 
