@@ -4,19 +4,16 @@ import java.io.Serializable;
 import lombok.Data;
 
 @Data
-public class OcrTestResponse implements Serializable {
+public class OcrExtractResult implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
     private String provider;
-    private String fileName;
-    private String contentType;
-    private Long fileSize;
-    private Boolean success;
+    private boolean success;
     private String errorCode;
     private String errorType;
+    private String text;
     private Integer textLength;
-    private String extractedText;
     private String errorMessage;
     private String responsePreview;
     private Integer httpStatus;

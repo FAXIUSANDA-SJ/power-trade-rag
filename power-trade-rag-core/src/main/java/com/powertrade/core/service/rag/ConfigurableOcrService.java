@@ -1,5 +1,8 @@
 package com.powertrade.core.service.rag;
 
+import com.powertrade.common.exception.IngestTaskErrorType;
+import com.powertrade.common.exception.IngestTaskException;
+import com.powertrade.core.model.OcrExtractResult;
 import java.io.IOException;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,13 +22,22 @@ public class ConfigurableOcrService implements OcrService {
     }
 
     @Override
-    public String extractText(MultipartFile file) {
+    public OcrExtractResult extract(MultipartFile file) {
         OcrProvider provider = resolveProvider();
         try {
-            return provider.extractText(file.getBytes(), file.getOriginalFilename(), file.getContentType());
+            OcrExtractResult result = provider.extract(file.getBytes(), file.getOriginalFilename(), file.getContentType());
+            if (result.getProvider() == null || result.getProvider().trim().isEmpty()) {
+                result.setProvider(provider.getProviderName());
+            }
+            return result;
         } catch (IOException e) {
-            throw new RuntimeException("OCR 读取文件失败", e);
+            throw new IngestTaskException(IngestTaskErrorType.OCR_FILE_READ_FAILED, "OCR 读取文件失败", e);
         }
+    }
+
+    @Override
+    public String extractText(MultipartFile file) {
+        return extract(file).getText();
     }
 
     public String getActiveProviderName() {
@@ -43,6 +55,6 @@ public class ConfigurableOcrService implements OcrService {
         return ocrProviders.stream()
                 .filter(item -> "none".equalsIgnoreCase(item.getProviderName()))
                 .findFirst()
-                .orElseThrow(() -> new RuntimeException("未找到默认 OCR provider"));
+                .orElseThrow(() -> new IngestTaskException(IngestTaskErrorType.CONFIGURATION_ERROR, "未找到默认 OCR provider"));
     }
 }

@@ -4,6 +4,7 @@ import com.powertrade.core.model.DocumentInfo;
 import com.powertrade.core.model.DocumentIngestAcceptedResponse;
 import com.powertrade.core.model.IngestTask;
 import com.powertrade.core.model.KnowledgeBaseStats;
+import com.powertrade.core.model.OcrExtractResult;
 import com.powertrade.core.model.OcrTestResponse;
 import com.powertrade.core.service.DocumentService;
 import com.powertrade.core.service.IngestTaskService;
@@ -135,13 +136,21 @@ public class DocumentController {
     @PostMapping("/ocr/test")
     @ApiOperation("OCR 联调测试")
     public OcrTestResponse testOcr(@RequestParam("file") MultipartFile file) {
-        String extractedText = configurableOcrService.extractText(file);
+        OcrExtractResult result = configurableOcrService.extract(file);
         OcrTestResponse response = new OcrTestResponse();
-        response.setProvider(configurableOcrService.getActiveProviderName());
+        response.setProvider(result.getProvider() == null ? configurableOcrService.getActiveProviderName() : result.getProvider());
         response.setFileName(file.getOriginalFilename());
         response.setContentType(file.getContentType());
-        response.setExtractedText(extractedText);
-        response.setTextLength(extractedText == null ? 0 : extractedText.length());
+        response.setFileSize(file.getSize());
+        response.setSuccess(result.isSuccess());
+        response.setErrorType(result.getErrorType());
+        response.setErrorCode(result.getErrorCode());
+        response.setExtractedText(result.getText());
+        response.setTextLength(result.getTextLength());
+        response.setErrorMessage(result.getErrorMessage());
+        response.setResponsePreview(result.getResponsePreview());
+        response.setHttpStatus(result.getHttpStatus());
+        response.setDurationMs(result.getDurationMs());
         return response;
     }
 

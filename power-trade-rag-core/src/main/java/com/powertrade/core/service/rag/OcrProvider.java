@@ -1,8 +1,10 @@
 package com.powertrade.core.service.rag;
 
+import com.powertrade.core.model.OcrExtractResult;
+
 public interface OcrProvider {
 
     String getProviderName();
 
-    String extractText(byte[] fileBytes, String fileName, String contentType);
+    OcrExtractResult extract(byte[] fileBytes, String fileName, String contentType);
 }

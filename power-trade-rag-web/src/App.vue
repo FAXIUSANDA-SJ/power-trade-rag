@@ -30,6 +30,11 @@
           <span>文档管理</span>
         </el-menu-item>
 
+        <el-menu-item index="/tasks">
+          <el-icon><Tickets /></el-icon>
+          <span>任务中心</span>
+        </el-menu-item>
+
         <el-menu-item index="/prompt-config">
           <el-icon><Setting /></el-icon>
           <span>提示词配置</span>
@@ -47,6 +52,7 @@
             <el-breadcrumb-item v-if="currentRoute === '/chat'">智能问答</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentRoute === '/knowledge'">知识库管理</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentRoute === '/documents'">文档管理</el-breadcrumb-item>
+            <el-breadcrumb-item v-if="currentRoute === '/tasks'">任务中心</el-breadcrumb-item>
             <el-breadcrumb-item v-if="currentRoute === '/prompt-config'">提示词配置</el-breadcrumb-item>
           </el-breadcrumb>
         </div>
@@ -77,7 +83,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ChatDotSquare, ChatLineRound, Folder, Document, Setting, User } from '@element-plus/icons-vue'
+import { ChatDotSquare, ChatLineRound, Folder, Document, Setting, Tickets, User } from '@element-plus/icons-vue'
 
 const route = useRoute()
 

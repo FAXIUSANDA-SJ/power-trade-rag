@@ -22,6 +22,8 @@
 
 - [架构整改任务清单](file:///Users/bytedance/project_learning/power-trade-rag/docs/architecture/架构整改任务清单.md)
 - [目标架构设计](file:///Users/bytedance/project_learning/power-trade-rag/docs/architecture/目标架构设计.md)
+- [OCR联调说明](file:///Users/bytedance/project_learning/power-trade-rag/docs/architecture/OCR联调说明.md)
+- [架构验收清单](file:///Users/bytedance/project_learning/power-trade-rag/docs/architecture/架构验收清单.md)
 - [业务侧改动清单](file:///Users/bytedance/project_learning/power-trade-rag/docs/design/业务侧改动清单.md)
 
 ## 项目目录结构
